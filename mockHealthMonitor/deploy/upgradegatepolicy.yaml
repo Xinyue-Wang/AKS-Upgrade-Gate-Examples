@@ -1,0 +1,11 @@
+# Registers the healthmonitor provider for one node pool. Without a policy, AKS ignores its
+# signals. Apply it before the upgrade starts: AKS reads policies when the upgrade begins.
+apiVersion: upgrade.aks.io/v1alpha1
+kind: UpgradeGatePolicy
+metadata:
+  name: healthmonitor
+spec:
+  provider: healthmonitor          # must match --provider-name
+  rules:
+  - target: {scope: NodePool, name: nodepool1}
+    nodeTimeout: 5m

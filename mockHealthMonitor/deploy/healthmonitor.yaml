@@ -1,0 +1,90 @@
+# healthmonitor: answers AKS upgrade gate HealthCheckRequests with HealthSignals.
+#
+#   kubectl apply -f deploy/healthmonitor.yaml
+#
+# Edit the args under "EDIT ME" to change its behavior. The provider name must
+# match spec.provider of an UpgradeGatePolicy (see deploy/upgradegatepolicy.yaml),
+# or AKS ignores the signals.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: healthmonitor
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: healthmonitor
+  namespace: healthmonitor
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: healthmonitor
+rules:
+- apiGroups: ["health.aks.io"]
+  resources: ["healthcheckrequests"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["health.aks.io"]
+  resources: ["healthsignals"]
+  verbs: ["get", "list", "watch", "create"]
+- apiGroups: ["health.aks.io"]
+  resources: ["healthsignals/status"]
+  verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: healthmonitor
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: healthmonitor
+subjects:
+- kind: ServiceAccount
+  name: healthmonitor
+  namespace: healthmonitor
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: healthmonitor
+  namespace: healthmonitor
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: healthmonitor
+  template:
+    metadata:
+      labels:
+        app: healthmonitor
+    spec:
+      serviceAccountName: healthmonitor
+      containers:
+      - name: healthmonitor
+        image: xinywadocker/healthmonitor:v0.1.0
+        args:
+        # ---- EDIT ME ------------------------------------------------------
+        - --provider-name=healthmonitor        # must match UpgradeGatePolicy spec.provider
+        - --wait-time=20s                      # keep below the policy's nodeTimeout
+        # - --failed-target=<hcr-name>,...     # these HCRs get Ready=False
+        # - --timeout-target=<hcr-name>,...    # these HCRs stay Ready=Unknown
+        # -------------------------------------------------------------------
+        - --health-probe-bind-address=:8081
+        ports:
+        - name: probes
+          containerPort: 8081
+        livenessProbe:
+          httpGet: {path: /healthz, port: probes}
+        readinessProbe:
+          httpGet: {path: /readyz, port: probes}
+        resources:
+          requests: {cpu: 10m, memory: 32Mi}
+          limits: {memory: 128Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          capabilities: {drop: ["ALL"]}
